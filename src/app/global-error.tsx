@@ -1,0 +1,2 @@
+"use client";
+export default function GlobalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) { return <html lang="en"><body style={{ margin: 0, background: "#0b1520", color: "#edf0e8", fontFamily: "system-ui, sans-serif" }}><main style={{ maxWidth: 640, margin: "0 auto", padding: "96px 24px" }}><h1>GameSwap is temporarily unavailable</h1><p>We could not safely complete that request. No client-side confirmation means the action should be treated as incomplete.</p><button onClick={reset}>Try again</button></main></body></html>; }

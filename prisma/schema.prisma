@@ -1,0 +1,706 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String    @id
+  name                String
+  email               String    @unique
+  emailVerified       Boolean   @default(false)
+  image               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  initials            String    @default("")
+  phoneNumber         String?   @unique
+  verifiedPhone       Boolean   @default(false)
+  identityCheck       String    @default("not_started")
+  completedSales      Int       @default(0)
+  completedSwaps      Int       @default(0)
+  responseRatePct     Int       @default(100)
+  cancellationRatePct Float     @default(0)
+  favoriteTeamIds     String    @default("[]")
+  favoriteLeagueIds   String    @default("[]")
+  homeCity            String?
+  role                String    @default("user")
+  accountStatus       String    @default("active")
+  stripeAccountId     String?   @unique
+  deleteRequestedAt   DateTime?
+
+  sessions               Session[]
+  accounts               Account[]
+  listings               Listing[]
+  wantedRequests         WantedRequest[]
+  reviewsReceived        Review[]                @relation("Reviewee")
+  reviewsWritten         Review[]                @relation("Reviewer")
+  notifications          Notification[]
+  threadParticipants     ThreadParticipant[]
+  messages               Message[]
+  tradesA                Trade[]                 @relation("TradeA")
+  tradesB                Trade[]                 @relation("TradeB")
+  seasonPrograms         SeasonProgram[]
+  circlesOwned           Circle[]
+  circleMemberships      CircleMember[]
+  savedListings          SavedListing[]
+  reports                Report[]
+  notificationPreference NotificationPreference?
+  evidenceUploads        OwnershipEvidence[]
+  offersSent             Offer[]                 @relation("OfferSender")
+  offersReceived         Offer[]                 @relation("OfferRecipient")
+  offersCreated          Offer[]                 @relation("OfferCreator")
+  offerActions           Offer[]                 @relation("OfferActionRequired")
+  transactionsAsBuyer    Transaction[]           @relation("TransactionBuyer")
+  transactionsAsSeller   Transaction[]           @relation("TransactionSeller")
+  blocksCreated          UserBlock[]             @relation("Blocker")
+  blocksReceived         UserBlock[]             @relation("Blocked")
+  auditEvents            AuditEvent[]            @relation("AuditActor")
+  moderationActions      ModerationAction[]      @relation("Moderator")
+  disputeEvidence        DisputeEvidence[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  issuer                String    @default("")
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@index([identifier])
+}
+
+model Listing {
+  id                      String              @id @default(cuid())
+  gameId                  String
+  sellerId                String
+  seller                  User                @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  quantity                Int
+  section                 String
+  row                     String
+  seatLevel               String
+  issuer                  String
+  transferReadiness       String              @default("information_submitted")
+  listingType             String
+  faceValuePerTicket      Float
+  estimatedValuePerTicket Float
+  askingCashAdjustment    Float?
+  parkingIncluded         Boolean             @default(false)
+  benefits                String              @default("[]")
+  acceptsCash             Boolean             @default(true)
+  acceptsGamesDescription String?
+  preferredGameIds        String              @default("[]")
+  flexibleOnDate          Boolean             @default(true)
+  flexibleOnSection       Boolean             @default(true)
+  acceptNotes             String?
+  visibility              String              @default("public")
+  circleId                String?
+  status                  String              @default("active")
+  postedAt                DateTime            @default(now())
+  viewCount               Int                 @default(0)
+  savedCount              Int                 @default(0)
+  accessible              Boolean             @default(false)
+  evidenceFileName        String?
+  eventId                 String?
+  event                   Event?              @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  seatStart               String?
+  seatEnd                 String?
+  currency                String              @default("usd")
+  askingPriceCents        Int?
+  expiresAt               DateTime?
+  pausedAt                DateTime?
+  cancelledAt             DateTime?
+  activeFingerprint       String?             @unique
+  version                 Int                 @default(1)
+  threads                 MessageThread[]
+  trades                  Trade[]
+  savedBy                 SavedListing[]
+  reports                 Report[]
+  evidence                OwnershipEvidence[]
+  offers                  Offer[]
+  transactions            Transaction[]
+
+  @@index([sellerId])
+  @@index([gameId])
+  @@index([status, visibility])
+  @@index([eventId, status])
+  @@index([expiresAt])
+}
+
+model WantedRequest {
+  id                  String          @id @default(cuid())
+  requesterId         String
+  requester           User            @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  desiredGameId       String
+  quantityMin         Int
+  quantityMax         Int
+  preferredSections   String          @default("[]")
+  maxBudget           Float
+  offeringGameIds     String          @default("[]")
+  offeringDescription String
+  flexibleOnDate      Boolean         @default(true)
+  postedAt            DateTime        @default(now())
+  expiresAt           DateTime
+  eventId             String?
+  event               Event?          @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  city                String?
+  notes               String?
+  status              String          @default("active")
+  updatedAt           DateTime        @updatedAt
+  threads             MessageThread[]
+
+  @@index([requesterId])
+  @@index([eventId, status])
+  @@index([status, expiresAt])
+}
+
+model MessageThread {
+  id              String              @id @default(cuid())
+  listingId       String?
+  listing         Listing?            @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  tradeId         String?
+  trade           Trade?              @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  wantedRequestId String?
+  wantedRequest   WantedRequest?      @relation(fields: [wantedRequestId], references: [id], onDelete: SetNull)
+  offerId         String?
+  offer           Offer?              @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  participants    ThreadParticipant[]
+  messages        Message[]
+}
+
+model ThreadParticipant {
+  id         String        @id @default(cuid())
+  threadId   String
+  thread     MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unread     Boolean       @default(false)
+  lastReadAt DateTime?
+  mutedAt    DateTime?
+
+  @@unique([threadId, userId])
+}
+
+model Message {
+  id        String        @id @default(cuid())
+  threadId  String
+  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  kind      String        @default("user")
+  body      String
+  sentAt    DateTime      @default(now())
+  editedAt  DateTime?
+  deletedAt DateTime?
+  reports   Report[]
+
+  @@index([threadId])
+}
+
+model Notification {
+  id                   String    @id @default(cuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type                 String
+  title                String
+  body                 String
+  urgency              String    @default("medium")
+  createdAt            DateTime  @default(now())
+  read                 Boolean   @default(false)
+  relatedTradeId       String?
+  relatedListingId     String?
+  relatedOfferId       String?
+  relatedTransactionId String?
+  emailedAt            DateTime?
+
+  @@index([userId, read])
+}
+
+model Trade {
+  id                String          @id @default(cuid())
+  listingId         String?
+  listing           Listing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  userAId           String
+  userA             User            @relation("TradeA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId           String
+  userB             User            @relation("TradeB", fields: [userBId], references: [id], onDelete: Cascade)
+  assetsFromA       String          @default("[]")
+  assetsFromB       String          @default("[]")
+  cashAdjustment    Float           @default(0)
+  platformFee       Float           @default(0)
+  refundableDeposit Float           @default(0)
+  stage             String          @default("offer_accepted")
+  history           String          @default("[]")
+  transferDeadline  DateTime
+  waitingOnUserId   String?
+  createdAt         DateTime        @default(now())
+  dispute           Dispute?
+  threads           MessageThread[]
+  transaction       Transaction?
+
+  @@index([userAId])
+  @@index([userBId])
+}
+
+model Dispute {
+  id              String            @id @default(cuid())
+  tradeId         String            @unique
+  trade           Trade             @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  reason          String
+  status          String            @default("submitted")
+  statement       String
+  filedByUserId   String
+  filedAt         DateTime          @default(now())
+  resolvedAt      DateTime?
+  resolution      String?
+  assignedAdminId String?
+  transactionId   String?
+  transaction     Transaction?      @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  evidence        DisputeEvidence[]
+  reports         Report[]
+}
+
+model Review {
+  id               String       @id @default(cuid())
+  revieweeId       String
+  reviewee         User         @relation("Reviewee", fields: [revieweeId], references: [id], onDelete: Cascade)
+  authorId         String
+  author           User         @relation("Reviewer", fields: [authorId], references: [id], onDelete: Cascade)
+  rating           Int
+  text             String
+  context          String
+  createdAt        DateTime     @default(now())
+  transactionId    String?
+  transaction      Transaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  moderationStatus String       @default("published")
+  reports          Report[]
+
+  @@unique([transactionId, authorId])
+  @@index([revieweeId, moderationStatus])
+}
+
+model Circle {
+  id             String         @id @default(cuid())
+  name           String
+  type           String
+  description    String
+  favoriteTeamId String?
+  ownerId        String
+  owner          User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime       @default(now())
+  members        CircleMember[]
+}
+
+model CircleMember {
+  id       String  @id @default(cuid())
+  circleId String
+  circle   Circle  @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isAdmin  Boolean @default(false)
+
+  @@unique([circleId, userId])
+}
+
+model SeasonProgram {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId      String
+  seasonLabel String
+  entries     SeasonEntry[]
+}
+
+model SeasonEntry {
+  id          String        @id @default(cuid())
+  programId   String
+  program     SeasonProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  gameId      String
+  status      String        @default("undecided")
+  ticketsHeld Int           @default(2)
+  listingId   String?
+
+  @@unique([programId, gameId])
+}
+
+model SavedListing {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+}
+
+model Report {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  messageId String?
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  reviewId  String?
+  review    Review?  @relation(fields: [reviewId], references: [id], onDelete: SetNull)
+  disputeId String?
+  dispute   Dispute? @relation(fields: [disputeId], references: [id], onDelete: SetNull)
+  reason    String
+  details   String?
+  createdAt DateTime @default(now())
+  status    String   @default("open")
+  riskLevel String   @default("unassessed")
+
+  @@index([status, createdAt])
+}
+
+model NotificationPreference {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inAppMessages  Boolean  @default(true)
+  emailMessages  Boolean  @default(true)
+  inAppOffers    Boolean  @default(true)
+  emailOffers    Boolean  @default(true)
+  inAppTransfers Boolean  @default(true)
+  emailTransfers Boolean  @default(true)
+  inAppPayments  Boolean  @default(true)
+  emailPayments  Boolean  @default(true)
+  inAppDisputes  Boolean  @default(true)
+  emailDisputes  Boolean  @default(true)
+  emailMarketing Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+}
+
+model League {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  sport     String
+  active    Boolean  @default(true)
+  teams     Team[]
+  events    Event[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Team {
+  id             String   @id @default(cuid())
+  externalId     String?  @unique
+  slug           String   @unique
+  name           String
+  city           String
+  abbreviation   String
+  primaryColor   String?
+  secondaryColor String?
+  leagueId       String
+  league         League   @relation(fields: [leagueId], references: [id], onDelete: Restrict)
+  homeEvents     Event[]  @relation("HomeTeam")
+  awayEvents     Event[]  @relation("AwayTeam")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([leagueId, city])
+}
+
+model Venue {
+  id          String   @id @default(cuid())
+  externalId  String?  @unique
+  slug        String   @unique
+  name        String
+  city        String
+  region      String
+  countryCode String   @default("US")
+  timezone    String
+  events      Event[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([city, region])
+}
+
+model Event {
+  id         String          @id @default(cuid())
+  externalId String?         @unique
+  slug       String          @unique
+  name       String
+  leagueId   String
+  league     League          @relation(fields: [leagueId], references: [id], onDelete: Restrict)
+  venueId    String
+  venue      Venue           @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  homeTeamId String?
+  homeTeam   Team?           @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: SetNull)
+  awayTeamId String?
+  awayTeam   Team?           @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: SetNull)
+  startsAt   DateTime
+  status     String          @default("scheduled")
+  source     String
+  sourceUrl  String?
+  listings   Listing[]
+  wanted     WantedRequest[]
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([startsAt, status])
+  @@index([leagueId, startsAt])
+  @@index([venueId, startsAt])
+}
+
+model OwnershipEvidence {
+  id            String    @id @default(cuid())
+  listingId     String
+  listing       Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  uploadedById  String
+  uploadedBy    User      @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  objectKey     String    @unique
+  originalName  String
+  mimeType      String
+  byteSize      Int
+  sha256        String
+  reviewStatus  String    @default("pending")
+  reviewedById  String?
+  reviewedAt    DateTime?
+  rejectionNote String?
+  createdAt     DateTime  @default(now())
+
+  @@index([listingId, reviewStatus])
+}
+
+model Offer {
+  id                 String          @id @default(cuid())
+  listingId          String
+  listing            Listing         @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  senderId           String
+  sender             User            @relation("OfferSender", fields: [senderId], references: [id], onDelete: Restrict)
+  recipientId        String
+  recipient          User            @relation("OfferRecipient", fields: [recipientId], references: [id], onDelete: Restrict)
+  createdById        String
+  createdBy          User            @relation("OfferCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  actionRequiredById String
+  actionRequiredBy   User            @relation("OfferActionRequired", fields: [actionRequiredById], references: [id], onDelete: Restrict)
+  parentOfferId      String?
+  parentOffer        Offer?          @relation("OfferCounters", fields: [parentOfferId], references: [id], onDelete: SetNull)
+  counterOffers      Offer[]         @relation("OfferCounters")
+  status             String          @default("pending")
+  version            Int             @default(1)
+  cashAmountCents    Int             @default(0)
+  currency           String          @default("usd")
+  note               String?
+  offeredListingIds  String          @default("[]")
+  expiresAt          DateTime
+  respondedAt        DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  threads            MessageThread[]
+  transaction        Transaction?
+
+  @@index([listingId, status])
+  @@index([recipientId, status, createdAt])
+  @@index([senderId, status, createdAt])
+  @@index([actionRequiredById, status, createdAt])
+}
+
+model Transaction {
+  id                    String           @id @default(cuid())
+  offerId               String           @unique
+  offer                 Offer            @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  listingId             String
+  listing               Listing          @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  buyerId               String
+  buyer                 User             @relation("TransactionBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  sellerId              String
+  seller                User             @relation("TransactionSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  legacyTradeId         String?          @unique
+  legacyTrade           Trade?           @relation(fields: [legacyTradeId], references: [id], onDelete: SetNull)
+  type                  String
+  status                String           @default("awaiting_payment")
+  currency              String           @default("usd")
+  ticketAmountCents     Int              @default(0)
+  cashAdjustmentCents   Int              @default(0)
+  platformFeeCents      Int              @default(0)
+  depositAmountCents    Int              @default(0)
+  stripePaymentIntentId String?          @unique
+  stripeChargeId        String?          @unique
+  stripeTransferId      String?          @unique
+  paymentAuthorizedAt   DateTime?
+  completedAt           DateTime?
+  cancelledAt           DateTime?
+  refundedAt            DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  deposits              Deposit[]
+  transfers             TicketTransfer[]
+  reviews               Review[]
+  disputes              Dispute[]
+
+  @@index([buyerId, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Deposit {
+  id                    String      @id @default(cuid())
+  transactionId         String
+  transaction           Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  userId                String
+  amountCents           Int
+  currency              String      @default("usd")
+  stripePaymentIntentId String?     @unique
+  status                String      @default("pending")
+  releasedAt            DateTime?
+  refundedAt            DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  @@unique([transactionId, userId])
+}
+
+model TicketTransfer {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  senderId      String
+  recipientId   String
+  issuer        String
+  status        String      @default("information_submitted")
+  initiatedAt   DateTime?
+  acceptedAt    DateTime?
+  confirmedAt   DateTime?
+  deadline      DateTime
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([transactionId, senderId])
+  @@index([recipientId, status])
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model DisputeEvidence {
+  id           String   @id @default(cuid())
+  disputeId    String
+  dispute      Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  objectKey    String   @unique
+  originalName String
+  mimeType     String
+  byteSize     Int
+  sha256       String
+  createdAt    DateTime @default(now())
+}
+
+model ModerationAction {
+  id          String   @id @default(cuid())
+  moderatorId String
+  moderator   User     @relation("Moderator", fields: [moderatorId], references: [id], onDelete: Restrict)
+  targetType  String
+  targetId    String
+  action      String
+  reason      String
+  metadata    String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+model AuditEvent {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String
+  entityId    String?
+  requestId   String?
+  ipHash      String?
+  userAgent   String?
+  metadata    String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model WebhookEvent {
+  id          String    @id
+  provider    String
+  type        String
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([provider, processedAt])
+}
+
+model RateLimitBucket {
+  key         String   @id
+  count       Int
+  windowStart DateTime
+  expiresAt   DateTime
+  updatedAt   DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model IdempotencyRecord {
+  key          String   @id
+  operation    String
+  userId       String?
+  responseJson String?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([expiresAt])
+}
