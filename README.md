@@ -127,7 +127,7 @@ Add the required variables in **Project settings → Environment Variables** bef
 - `BETTER_AUTH_URL`: the canonical deployment URL, such as `https://gameswap.example.com`
 - `NEXT_PUBLIC_APP_URL`: the same canonical public URL
 
-Prisma client generation uses a non-routable placeholder only when `DATABASE_URL` is absent during `prisma generate`; it never connects with that value. Runtime validation and all Prisma migration/database commands still require the real variable. After attaching PostgreSQL, run `npm run db:migrate:deploy` against that database before serving traffic.
+When `DATABASE_URL` is absent, the Prisma config omits its datasource override so dependency installation can still generate the client without connecting to a database. Runtime validation and all Prisma migration/database commands still require the real variable from the schema. After attaching PostgreSQL, run `npm run db:migrate:deploy` against that database before serving traffic.
 
 ## Launch gates
 

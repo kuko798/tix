@@ -1,13 +1,9 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
-const isClientGeneration = process.argv.includes("generate");
-const databaseUrl = process.env.DATABASE_URL
-  ?? (isClientGeneration ? "postgresql://prisma-generate.invalid/gameswap" : undefined);
-
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for Prisma database commands.");
-}
+const datasource = process.env.DATABASE_URL
+  ? { datasource: { url: process.env.DATABASE_URL } }
+  : {};
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -15,7 +11,5 @@ export default defineConfig({
     path: "prisma/migrations",
     seed: "tsx prisma/seed.ts",
   },
-  datasource: {
-    url: databaseUrl,
-  },
+  ...datasource,
 });
