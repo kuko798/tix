@@ -118,6 +118,17 @@ Tests cover route protection, sensitive-message screening, optimistic offer conc
 7. Run separate buyer and seller test accounts through sale, swap, failed payment, transfer, dispute, refund, and review scenarios.
 8. Review `/terms`, `/privacy`, and `/marketplace-rules` with qualified counsel before public access.
 
+### Vercel
+
+Add the required variables in **Project settings → Environment Variables** before deploying. At minimum, the Production and Preview environments need:
+
+- `DATABASE_URL`: a reachable PostgreSQL connection URL
+- `BETTER_AUTH_SECRET`: a high-entropy secret of at least 16 characters
+- `BETTER_AUTH_URL`: the canonical deployment URL, such as `https://gameswap.example.com`
+- `NEXT_PUBLIC_APP_URL`: the same canonical public URL
+
+Prisma client generation uses a non-routable placeholder only when `DATABASE_URL` is absent during `prisma generate`; it never connects with that value. Runtime validation and all Prisma migration/database commands still require the real variable. After attaching PostgreSQL, run `npm run db:migrate:deploy` against that database before serving traffic.
+
 ## Launch gates
 
 Completed in code:
