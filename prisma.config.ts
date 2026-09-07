@@ -4,7 +4,7 @@ import { defineConfig } from "prisma/config";
 const migrationDatabaseUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
 
 const datasource = migrationDatabaseUrl
-  ? { datasource: { url: migrationDatabaseUrl } }
+  ? { engine: "classic" as const, datasource: { url: migrationDatabaseUrl } }
   : {};
 
 export default defineConfig({
