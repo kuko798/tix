@@ -4,6 +4,8 @@ import { z } from "zod";
 
 const optionalUrl = z.string().url().optional().or(z.literal(""));
 const optionalSecret = z.string().optional().or(z.literal(""));
+const blankAsUndefined = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -11,7 +13,10 @@ const schema = z.object({
   BETTER_AUTH_SECRET: z.string().min(16),
   BETTER_AUTH_URL: z.string().url(),
   NEXT_PUBLIC_APP_URL: z.string().url(),
-  EMAIL_DELIVERY_ENABLED: z.enum(["true", "false"]).default("false"),
+  EMAIL_DELIVERY_ENABLED: z.preprocess(
+    blankAsUndefined,
+    z.enum(["true", "false"]).default("false")
+  ),
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().min(3).optional().or(z.literal("")),
   TWILIO_ACCOUNT_SID: z.string().startsWith("AC").optional().or(z.literal("")),
@@ -19,17 +24,23 @@ const schema = z.object({
   TWILIO_VERIFY_SERVICE_SID: z.string().startsWith("VA").optional().or(z.literal("")),
   STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional().or(z.literal("")),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional().or(z.literal("")),
-  STRIPE_CONNECT_COUNTRY: z.string().length(2).default("US"),
-  STRIPE_CURRENCY: z.string().length(3).default("usd"),
+  STRIPE_CONNECT_COUNTRY: z.preprocess(blankAsUndefined, z.string().length(2).default("US")),
+  STRIPE_CURRENCY: z.preprocess(blankAsUndefined, z.string().length(3).default("usd")),
   S3_ENDPOINT: optionalUrl,
   S3_REGION: z.string().optional(),
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: optionalSecret,
   S3_SECRET_ACCESS_KEY: optionalSecret,
-  EVENT_SOURCE: z.enum(["ticketmaster", "manual"]).default("manual"),
+  EVENT_SOURCE: z.preprocess(
+    blankAsUndefined,
+    z.enum(["ticketmaster", "manual"]).default("manual")
+  ),
   TICKETMASTER_API_KEY: z.string().optional(),
   ADMIN_EMAILS: z.string().default(""),
-  LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+  LOG_LEVEL: z.preprocess(
+    blankAsUndefined,
+    z.enum(["debug", "info", "warn", "error"]).default("info")
+  ),
 }).superRefine((value, context) => {
   const isPostgres = /^postgres(?:ql)?:\/\//i.test(value.DATABASE_URL);
   const isLocalSqlite = value.NODE_ENV !== "production" && value.DATABASE_URL.startsWith("file:");
