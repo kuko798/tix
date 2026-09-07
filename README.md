@@ -123,11 +123,12 @@ Tests cover route protection, sensitive-message screening, optimistic offer conc
 Add the required variables in **Project settings → Environment Variables** before deploying. At minimum, the Production and Preview environments need:
 
 - `DATABASE_URL`: a reachable PostgreSQL connection URL
+- `DIRECT_URL`: the direct or session-pooled PostgreSQL URL used for migrations (recommended for serverless databases)
 - `BETTER_AUTH_SECRET`: a high-entropy secret of at least 16 characters
 - `BETTER_AUTH_URL`: the canonical deployment URL, such as `https://gameswap.example.com`
 - `NEXT_PUBLIC_APP_URL`: the same canonical public URL
 
-When `DATABASE_URL` is absent, the Prisma config omits its datasource override so dependency installation can still generate the client without connecting to a database. Runtime validation and all Prisma migration/database commands still require the real variable from the schema. After attaching PostgreSQL, run `npm run db:migrate:deploy` against that database before serving traffic.
+For serverless PostgreSQL, use the transaction-pooled URL as `DATABASE_URL` and the direct or session-pooled URL as `DIRECT_URL`. Prisma CLI commands prefer `DIRECT_URL` and fall back to `DATABASE_URL`. When both are absent, the Prisma config omits its datasource override so dependency installation can still generate the client without connecting to a database. Runtime validation still requires the real `DATABASE_URL`. After attaching PostgreSQL, run `npm run db:migrate:deploy` against that database before serving traffic.
 
 ## Launch gates
 
