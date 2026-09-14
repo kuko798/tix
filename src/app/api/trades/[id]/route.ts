@@ -17,8 +17,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     queryDisputeForTrade(id),
     prisma.transaction.findUnique({
       where: { legacyTradeId: id },
-      select: { id: true, buyerId: true, sellerId: true, status: true },
+      select: { id: true, buyerId: true, sellerId: true, status: true, transfers: { select: { senderId: true, recipientId: true, status: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] } },
     }),
   ]);
-  return NextResponse.json({ trade, dispute, transaction });
+  const reviewed = transaction ? Boolean(await prisma.review.findUnique({ where: { transactionId_authorId: { transactionId: transaction.id, authorId: user.id } }, select: { id: true } })) : false;
+  return NextResponse.json({ trade, dispute, transaction, reviewed });
 }

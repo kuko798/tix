@@ -37,6 +37,7 @@ import { AlertBanner } from "@/components/marketplace/alert-banner";
 import { TrustIndicator } from "@/components/marketplace/trust-indicator";
 import { getGame, getTeam } from "@/lib/catalog";
 import { createOfferAction } from "@/lib/actions";
+import { calculateProtectedAmounts } from "@/lib/domain/marketplace";
 import type { Listing, TradeAsset, UserProfile } from "@/lib/types";
 
 function listingToAsset(listing: Listing): TradeAsset {
@@ -45,10 +46,11 @@ function listingToAsset(listing: Listing): TradeAsset {
     id: listing.id,
     type: "tickets",
     gameId: listing.gameId,
+    game,
     quantity: listing.quantity,
     section: listing.section,
     row: listing.row,
-    label: `${getTeam(game.awayTeamId).name} at ${getTeam(game.homeTeamId).name}, Section ${listing.section}`,
+    label: `${(game.awayTeam ?? getTeam(game.awayTeamId)).name} at ${(game.homeTeam ?? getTeam(game.homeTeamId)).name}, Section ${listing.section}`,
     valueEstimate: listing.estimatedValuePerTicket * listing.quantity,
   };
 }
@@ -83,7 +85,7 @@ function OfferBuilderContent({ listingId }: { listingId: string }) {
       .then((data: Listing | null) => {
         if (data) {
           setListing(data);
-          setCashAdjustment(String(data.askingCashAdjustment ?? 0));
+          setCashAdjustment(String(mode === "buy" || data.listingType === "sale" ? data.faceValuePerTicket * data.quantity : data.askingCashAdjustment ?? 0));
         }
       })
       .catch(() => setMissing(true));
@@ -129,19 +131,20 @@ function OfferBuilderContent({ listingId }: { listingId: string }) {
     id: "listing-asset",
     type: "tickets",
     gameId: listing.gameId,
+    game,
     quantity: listing.quantity,
     section: listing.section,
     row: listing.row,
-    label: `${getTeam(game.awayTeamId).name} at ${getTeam(game.homeTeamId).name}, Section ${listing.section}`,
+    label: `${(game.awayTeam ?? getTeam(game.awayTeamId)).name} at ${(game.homeTeam ?? getTeam(game.homeTeamId)).name}, Section ${listing.section}`,
     valueEstimate: listing.estimatedValuePerTicket * listing.quantity,
   };
 
   const offeredValue = offeredAssets.reduce((sum, a) => sum + a.valueEstimate, 0);
   const receivedValue = receivedAsset.valueEstimate;
   const cashValue = Number(cashAdjustment || 0);
-  const totalValueForFee = offeredValue + receivedValue + Math.abs(cashValue);
-  const platformFee = Math.max(5, Math.round(totalValueForFee * 0.045));
-  const refundableDeposit = totalValueForFee > 500 ? 100 : 50;
+  const protectedAmounts = calculateProtectedAmounts({ listingValueCents: Math.round(receivedValue * 100), cashAmountCents: Math.round(cashValue * 100), isDirectSale: offeredAssets.length === 0 && listing.listingType !== "trade" });
+  const platformFee = protectedAmounts.platformFeeCents / 100;
+  const refundableDeposit = protectedAmounts.depositAmountCents / 100;
 
   function addAsset(id: string) {
     setOfferedAssetIds((prev) => [...prev, id]);
@@ -167,6 +170,7 @@ function OfferBuilderContent({ listingId }: { listingId: string }) {
         assetsFromBuyer: offeredAssets,
         cashAdjustment: cashValue,
         message,
+        expiresInHours: expiration === "24hours" ? 24 : expiration === "7days" ? 168 : 72,
       });
       toast.success("Offer sent. Waiting on " + seller.displayName.split(" ")[0] + " to respond.");
       router.push(`/messages/${result.threadId}`);
@@ -311,7 +315,7 @@ function OfferBuilderContent({ listingId }: { listingId: string }) {
         <div className="space-y-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="cash-adjustment">Cash adjustment</Label>
+              <Label htmlFor="cash-adjustment">{offeredAssets.length ? "Cash adjustment" : "Cash offer (total)"}</Label>
               <div className="relative">
                 <DollarSign className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <Input
@@ -324,7 +328,7 @@ function OfferBuilderContent({ listingId }: { listingId: string }) {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                This is the additional cash you are offering alongside your tickets.
+                {offeredAssets.length ? "This is the additional cash you are offering alongside your tickets." : "This is your total offer for all tickets in this listing."}
               </p>
             </div>
             <div className="space-y-1.5">

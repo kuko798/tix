@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, MessageSquare, Plus, User } from "lucide-react";
@@ -18,10 +18,14 @@ import { PRIMARY_NAV } from "@/lib/constants";
 import { signOut, useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
+const subscribeToHydration = () => () => {};
+
 export function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: cachedSession } = useSession();
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
+  const session = hydrated ? cachedSession : null;
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 

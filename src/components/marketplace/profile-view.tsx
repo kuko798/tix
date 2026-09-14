@@ -1,7 +1,6 @@
 import { Mail, Phone, ShieldCheck, Star } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { TeamCrest } from "@/components/marketplace/team-crest";
-import { getTeam } from "@/lib/catalog";
 import { formatGameDateLong } from "@/lib/format";
 import type { UserProfile } from "@/lib/types";
 import Link from "next/link";
@@ -59,14 +58,13 @@ export function ProfileView({
         <Stat label="Cancellation rate" value={`${user.cancellationRatePct}%`} />
       </div>
 
-      {user.favoriteTeamIds.length > 0 && (
+      {(user.favoriteTeams?.length ?? 0) > 0 && (
         <section>
           <h2 className="mb-3 text-sm font-medium">Favorite teams</h2>
           <div className="flex flex-wrap gap-3">
-            {user.favoriteTeamIds.map((teamId) => {
-              const team = getTeam(teamId);
+            {user.favoriteTeams?.map((team) => {
               return (
-                <div key={teamId} className="flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-3">
+                <div key={team.id} className="flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-3">
                   <TeamCrest team={team} size="sm" />
                   <span className="text-sm">{team.city} {team.name}</span>
                 </div>

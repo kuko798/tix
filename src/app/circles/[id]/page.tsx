@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { TeamCrest } from "@/components/marketplace/team-crest";
 import { TicketListingCard } from "@/components/marketplace/ticket-listing-card";
 import { EmptyState } from "@/components/marketplace/empty-state";
-import { getTeam } from "@/lib/catalog";
+import { prisma } from "@/lib/prisma";
+import { toTeam } from "@/lib/mappers";
 import { queryCircleById, queryListingsByCircle } from "@/lib/queries";
 import { getSessionUser } from "@/lib/session";
 import { JoinCircleButton } from "./join-button";
+import { MembershipRequests } from "./membership-requests";
 
 const TYPE_LABEL: Record<string, string> = {
   friends_family: "Friends & family",
@@ -30,14 +32,20 @@ export default async function CircleDetailPage({
   const circle = await queryCircleById(id, user?.id);
   if (!circle) notFound();
   const listings = await queryListingsByCircle(id, user?.id);
+  const [favoriteTeam, membership, request, requests] = await Promise.all([
+    circle.favoriteTeamId ? prisma.team.findUnique({ where: { id: circle.favoriteTeamId }, include: { league: true } }) : null,
+    user ? prisma.circleMember.findUnique({ where: { circleId_userId: { circleId: id, userId: user.id } } }) : null,
+    user ? prisma.circleJoinRequest.findUnique({ where: { circleId_userId: { circleId: id, userId: user.id } } }) : null,
+    circle.isAdmin ? prisma.circleJoinRequest.findMany({ where: { circleId: id, status: "pending" }, include: { user: { select: { name: true } } }, orderBy: { createdAt: "asc" }, take: 100 }) : [],
+  ]);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          {circle.favoriteTeamId && (
+          {favoriteTeam && (
             <div className="hidden sm:block">
-              <TeamCrest team={getTeam(circle.favoriteTeamId)} size="lg" />
+              <TeamCrest team={toTeam(favoriteTeam)} size="lg" />
             </div>
           )}
           <div>
@@ -47,14 +55,15 @@ export default async function CircleDetailPage({
             </p>
           </div>
         </div>
-        {user ? <JoinCircleButton circleId={circle.id} /> : (
+        {membership ? <span className="text-sm text-muted-foreground">Circle member</span> : user ? <JoinCircleButton circleId={circle.id} requested={request?.status === "pending"} /> : (
           <Button asChild>
-            <Link href="/login">Sign in to join</Link>
+            <Link href="/login">Sign in to request membership</Link>
           </Button>
         )}
       </div>
 
       <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">{circle.description}</p>
+      <MembershipRequests requests={requests.map(request => ({ id: request.id, name: request.user.name }))} />
 
       <h2 className="mt-10 font-display text-xl tracking-tight">Circle listings</h2>
       {listings.length === 0 ? (

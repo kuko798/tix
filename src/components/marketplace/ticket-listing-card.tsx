@@ -21,9 +21,9 @@ export function TicketListingCard({
   compact?: boolean;
 }) {
   const game = listing.game ?? getGame(listing.gameId);
-  const home = getTeam(game.homeTeamId);
-  const away = getTeam(game.awayTeamId);
-  const venue = getVenue(game.venueId);
+  const home = game.homeTeam ?? getTeam(game.homeTeamId);
+  const away = game.awayTeam ?? getTeam(game.awayTeamId);
+  const venue = game.venue ?? getVenue(game.venueId);
   const seller = listing.seller;
   const wants = listing.accept.acceptsGamesDescription
     ? listing.accept.acceptsGamesDescription

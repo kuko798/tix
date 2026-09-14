@@ -6,8 +6,8 @@ import type { WantedRequest } from "@/lib/types";
 
 export function WantedRow({ request }: { request: WantedRequest }) {
   const game = request.game ?? getGame(request.desiredGameId);
-  const home = getTeam(game.homeTeamId);
-  const away = getTeam(game.awayTeamId);
+  const home = game.homeTeam ?? getTeam(game.homeTeamId);
+  const away = game.awayTeam ?? getTeam(game.awayTeamId);
   const quantityLabel =
     request.quantityMin === request.quantityMax
       ? `${request.quantityMin} tix`

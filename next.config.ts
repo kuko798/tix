@@ -14,18 +14,23 @@ const nextConfig: NextConfig = {
     const isDevelopment = process.env.NODE_ENV === "development";
     const forceHttps = !isDevelopment && process.env.NEXT_PUBLIC_APP_URL?.startsWith("https://");
     const developmentScriptPolicy = isDevelopment ? " 'unsafe-eval'" : "";
+    const uploadOrigins = process.env.S3_ENDPOINT
+      ? [new URL(process.env.S3_ENDPOINT).origin]
+      : process.env.S3_BUCKET && process.env.S3_REGION
+        ? [`https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com`, `https://${process.env.S3_BUCKET}.s3.amazonaws.com`]
+        : [];
     const csp = [
       "default-src 'self'",
       "base-uri 'self'",
       "form-action 'self'",
       "frame-ancestors 'none'",
       "object-src 'none'",
-      `script-src 'self' 'unsafe-inline'${developmentScriptPolicy} https://js.stripe.com`,
+      `script-src 'self' 'unsafe-inline'${developmentScriptPolicy} https://js.stripe.com https://*.js.stripe.com`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://api.stripe.com",
-      "frame-src https://js.stripe.com https://hooks.stripe.com",
+      `connect-src 'self' https://api.stripe.com https://link.com https://*.link.com ${uploadOrigins.join(" ")}`,
+      "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://link.com https://*.link.com",
       ...(forceHttps ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
     return [{ source: "/(.*)", headers: [

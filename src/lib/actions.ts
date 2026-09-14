@@ -15,6 +15,7 @@ import { audit } from "@/lib/server/audit";
 import { advanceTradeSafely } from "@/lib/server/transfers";
 import { sendNotificationEmail } from "@/lib/server/notifications";
 import { assertReviewEligible } from "@/lib/domain/marketplace";
+import { queryListingById } from "@/lib/queries";
 
 function json(value: unknown) {
   return JSON.stringify(value);
@@ -183,6 +184,7 @@ const offerSchema = z.object({
   assetsFromBuyer: z.array(z.custom<TradeAsset>()),
   cashAdjustment: z.number(),
   message: z.string().max(2000),
+  expiresInHours: z.number().int().min(1).max(336).optional(),
 });
 
 export async function createOfferAction(input: z.infer<typeof offerSchema>) {
@@ -226,28 +228,41 @@ export async function advanceTradeAction(tradeId: string) {
 }
 
 export async function createDisputeAction(tradeId: string, reason: string, statement: string) {
-  const user = await requireSessionUser();
-  const trade = await prisma.trade.findUnique({ where: { id: tradeId } });
+  const user = await requireActiveUser();
+  z.string().cuid().parse(tradeId);
+  const details = z.object({ reason: z.enum(["ticket_not_transferred", "incorrect_seat_information", "ticket_not_accepted", "transfer_cancelled", "event_rescheduled", "entry_problem", "payment_problem"]), statement: z.string().trim().min(10).max(5000) }).parse({ reason, statement });
+  const trade = await prisma.trade.findUnique({ where: { id: tradeId }, include: { transaction: true } });
   if (!trade) throw new Error("Trade not found.");
   if (trade.userAId !== user.id && trade.userBId !== user.id) {
     throw new Error("You are not part of this trade.");
   }
 
-  await prisma.dispute.create({
+  const dispute = await prisma.$transaction(async (tx) => {
+  if (trade.transaction) {
+    const locked = await tx.transaction.updateMany({ where: { id: trade.transaction.id, status: { in: ["awaiting_payment", "payment_pending", "payment_failed", "payment_authorized"] } }, data: { status: "disputed" } });
+    if (!locked.count) throw new Error("Support must review exchanges that are already closing or closed.");
+  }
+  const created = await tx.dispute.create({
     data: {
       tradeId,
-      reason,
-      statement: statement.trim(),
+      transactionId: trade.transaction?.id,
+      reason: details.reason,
+      statement: details.statement,
       filedByUserId: user.id,
     },
   });
-  await prisma.trade.update({
+  await tx.trade.update({
     where: { id: tradeId },
     data: { stage: "disputed", waitingOnUserId: null },
+  });
+  const admins = await tx.user.findMany({ where: { role: "admin", accountStatus: "active" }, select: { id: true }, take: 50 });
+  await tx.notification.createMany({ data: [...new Set([trade.userAId, trade.userBId, ...admins.map(admin => admin.id)])].map(userId => ({ userId, type: "dispute_update", title: "Exchange dispute submitted", body: "A support case has been opened. The exchange is paused for review.", urgency: "high", relatedTradeId: tradeId, relatedTransactionId: trade.transaction?.id })) });
+  return created;
   });
 
   revalidatePath(`/trades/${tradeId}`);
   revalidatePath("/trades");
+  return { id: dispute.id };
 }
 
 export async function sendMessageAction(threadId: string, body: string) {
@@ -319,10 +334,15 @@ export async function sendMessageAction(threadId: string, body: string) {
 }
 
 export async function startConversationAction(listingId: string, body: string) {
-  const user = await requireSessionUser();
+  const user = await requireActiveUser();
+  await enforceRateLimit({ scope: "conversation-start", userId: user.id, limit: 20, windowSeconds: 3600 });
+  z.string().trim().max(2000).parse(body);
+  if (!await queryListingById(listingId, user.id)) throw new Error("Listing not found.");
   const listing = await prisma.listing.findUnique({ where: { id: listingId } });
   if (!listing) throw new Error("Listing not found.");
   if (listing.sellerId === user.id) throw new Error("This is your listing.");
+  await assertNotBlocked(user.id, listing.sellerId);
+  if (listing.status !== "active" || (listing.expiresAt && listing.expiresAt <= new Date())) throw new Error("This listing is no longer active.");
   if (messageLooksUnsafe(body)) {
     throw new Error("That message looks like it contains payment info, a card number, or a barcode/QR reference.");
   }
@@ -360,6 +380,7 @@ export async function startConversationAction(listingId: string, body: string) {
 
 export async function startWantedConversationAction(wantedId: string, body: string) {
   const user = await requireActiveUser();
+  z.string().trim().max(2000).parse(body);
   await enforceRateLimit({ scope: "conversation-start", userId: user.id, limit: 20, windowSeconds: 3600 });
   const request = await prisma.wantedRequest.findFirst({
     where: { id: wantedId, status: "active", expiresAt: { gt: new Date() } },
@@ -440,7 +461,7 @@ export async function markThreadReadAction(threadId: string) {
 
 export async function blockUserAction(blockedUserId: string) {
   const user = await requireActiveUser();
-  const parsed = z.string().cuid().parse(blockedUserId);
+  const parsed = z.string().min(1).max(128).parse(blockedUserId);
   if (parsed === user.id) throw new Error("You cannot block your own account.");
   await prisma.userBlock.upsert({
     where: { blockerId_blockedId: { blockerId: user.id, blockedId: parsed } },
@@ -464,16 +485,17 @@ export async function reportMessageAction(messageId: string, reason: string) {
 }
 
 export async function createCircleAction(input: { name: string; type: string; description: string; favoriteTeamId?: string }) {
-  const user = await requireSessionUser();
-  const name = input.name.trim();
-  if (!name) throw new Error("Circle name is required.");
+  const user = await requireActiveUser();
+  await enforceRateLimit({ scope: "circle-create", userId: user.id, limit: 5, windowSeconds: 3600 });
+  const details = z.object({ name: z.string().trim().min(3).max(100), type: z.enum(["friends_family", "season_ticket_holders", "alumni", "supporters", "corporate"]), description: z.string().trim().min(10).max(2000), favoriteTeamId: z.string().min(1).max(128).optional() }).parse(input);
+  if (details.favoriteTeamId && !await prisma.team.findUnique({ where: { id: details.favoriteTeamId }, select: { id: true } })) throw new Error("Choose a team from the current catalog.");
 
   const circle = await prisma.circle.create({
     data: {
-      name,
-      type: input.type,
-      description: input.description.trim(),
-      favoriteTeamId: input.favoriteTeamId || null,
+      name: details.name,
+      type: details.type,
+      description: details.description,
+      favoriteTeamId: details.favoriteTeamId || null,
       ownerId: user.id,
       members: { create: { userId: user.id, isAdmin: true } },
     },
@@ -484,13 +506,35 @@ export async function createCircleAction(input: { name: string; type: string; de
 }
 
 export async function joinCircleAction(circleId: string) {
-  const user = await requireSessionUser();
-  await prisma.circleMember.upsert({
+  const user = await requireActiveUser();
+  z.string().cuid().parse(circleId);
+  await enforceRateLimit({ scope: "circle-join", userId: user.id, limit: 10, windowSeconds: 3600 });
+  if (!await prisma.circle.findUnique({ where: { id: circleId }, select: { id: true } })) throw new Error("Circle not found.");
+  if (await prisma.circleMember.findUnique({ where: { circleId_userId: { circleId, userId: user.id } } })) return { status: "member" };
+  await prisma.circleJoinRequest.upsert({
     where: { circleId_userId: { circleId, userId: user.id } },
-    update: {},
+    update: { status: "pending", decidedAt: null },
     create: { circleId, userId: user.id },
   });
   revalidatePath(`/circles/${circleId}`);
+  return { status: "pending" };
+}
+
+export async function decideCircleJoinAction(raw: unknown) {
+  const user = await requireActiveUser();
+  const input = z.object({ requestId: z.string().cuid(), decision: z.enum(["approved", "declined"]) }).parse(raw);
+  const circleId = await prisma.$transaction(async tx => {
+    const request = await tx.circleJoinRequest.findUniqueOrThrow({ where: { id: input.requestId }, include: { circle: { select: { ownerId: true } }, user: { select: { accountStatus: true } } } });
+    const membership = await tx.circleMember.findUnique({ where: { circleId_userId: { circleId: request.circleId, userId: user.id } } });
+    if (request.circle.ownerId !== user.id && !membership?.isAdmin) throw new Error("Only circle administrators can decide membership requests.");
+    if (request.user.accountStatus !== "active") throw new Error("This account cannot join a circle.");
+    const claimed = await tx.circleJoinRequest.updateMany({ where: { id: request.id, status: "pending" }, data: { status: input.decision, decidedAt: new Date() } });
+    if (!claimed.count) throw new Error("This request was already decided. Refresh the circle.");
+    if (input.decision === "approved") await tx.circleMember.upsert({ where: { circleId_userId: { circleId: request.circleId, userId: request.userId } }, create: { circleId: request.circleId, userId: request.userId }, update: {} });
+    return request.circleId;
+  });
+  revalidatePath(`/circles/${circleId}`);
+  return { success: true };
 }
 
 export async function toggleSaveListingAction(listingId: string) {
@@ -530,7 +574,7 @@ export async function reportListingAction(listingId: string, reason: string, det
 export async function createReviewAction(revieweeId: string, tradeId: string, rating: number, text: string) {
   const user = await requireActiveUser();
   const input = z.object({
-    revieweeId: z.string().cuid(),
+    revieweeId: z.string().min(1).max(128),
     tradeId: z.string().cuid(),
     rating: z.number().int().min(1).max(5),
     text: z.string().trim().min(10).max(2000),
@@ -538,6 +582,7 @@ export async function createReviewAction(revieweeId: string, tradeId: string, ra
   const transaction = await prisma.transaction.findUnique({ where: { legacyTradeId: input.tradeId } });
   if (!transaction) throw new Error("Transaction not found.");
   assertReviewEligible({ ...transaction, authorId: user.id, revieweeId: input.revieweeId });
+  if (await prisma.review.findUnique({ where: { transactionId_authorId: { transactionId: transaction.id, authorId: user.id } } })) throw new Error("You already reviewed this exchange.");
 
   await prisma.review.create({
     data: {
@@ -623,7 +668,7 @@ export async function deleteAccountAction() {
     prisma.dispute.count({
       where: {
         status: { not: "resolved" },
-        transaction: { OR: [{ buyerId: user.id }, { sellerId: user.id }] },
+        OR: [{ transaction: { OR: [{ buyerId: user.id }, { sellerId: user.id }] } }, { trade: { OR: [{ userAId: user.id }, { userBId: user.id }] } }],
       },
     }),
   ]);
@@ -633,6 +678,9 @@ export async function deleteAccountAction() {
   const anonymizedEmail = `deleted+${randomUUID()}@users.invalid`;
   await prisma.$transaction(async (tx) => {
     await tx.session.deleteMany({ where: { userId: user.id } });
+    await tx.listing.updateMany({ where: { sellerId: user.id, status: { in: ["active", "paused"] } }, data: { status: "cancelled", cancelledAt: new Date(), activeFingerprint: null } });
+    await tx.wantedRequest.updateMany({ where: { requesterId: user.id, status: "active" }, data: { status: "cancelled" } });
+    await tx.offer.updateMany({ where: { status: "pending", OR: [{ senderId: user.id }, { recipientId: user.id }] }, data: { status: "cancelled", cancelledAt: new Date(), version: { increment: 1 } } });
     await tx.account.deleteMany({ where: { userId: user.id } });
     await tx.notification.deleteMany({ where: { userId: user.id } });
     await tx.notificationPreference.deleteMany({ where: { userId: user.id } });
@@ -648,6 +696,7 @@ export async function deleteAccountAction() {
         favoriteTeamIds: "[]",
         favoriteLeagueIds: "[]",
         verifiedPhone: false,
+        phoneNumber: null,
         identityCheck: "not_started",
         stripeAccountId: null,
         accountStatus: "deleted",

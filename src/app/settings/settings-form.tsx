@@ -112,7 +112,7 @@ export function SettingsForm({ profile, verification, preferences: initialPrefer
                 ? "Verified through a single-use link."
                 : verification.emailConfigured
                   ? emailSent ? "Check your inbox and follow the verification link." : "Send a single-use verification link to this address."
-                  : "Email delivery is not configured. Add the Resend variables shown below."}
+                  : "Email delivery is not configured. Contact support."}
             </p>
             {!verification.emailVerified && (
               <Button
@@ -279,12 +279,13 @@ export function SettingsForm({ profile, verification, preferences: initialPrefer
 
       <section className="border-t border-danger/40 pt-6">
         <h2 className="font-display text-2xl">Delete account</h2>
-        <p className="mt-2 max-w-[65ch] text-sm text-muted-foreground">Account deletion is permanent. Open transactions and disputes must be resolved first. You will receive a confirmation email before deletion.</p>
+        <p className="mt-2 max-w-[65ch] text-sm text-muted-foreground">Account deletion is permanent. Open transactions and disputes must be resolved first.</p>
         <Button
           className="mt-5"
           variant="destructive"
           disabled={pending}
           onClick={() => startTransition(async () => {
+            if (!window.confirm("Permanently delete your GameSwap account? This cannot be undone.")) return;
             const openCountResponse = await fetch("/api/me/deletion-readiness", { cache: "no-store" });
             const readiness = await openCountResponse.json() as { ready: boolean; reason?: string };
               if (!readiness.ready) {

@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
-import { notFound, useRouter } from "next/navigation";
+import { use, useEffect, useState } from "react";
+import { notFound } from "next/navigation";
 import { toast } from "sonner";
-import { FileCheck2, Upload } from "lucide-react";
+import { EvidenceUpload } from "@/components/marketplace/evidence-upload";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,16 +18,13 @@ import type { Dispute, DisputeReason, Trade } from "@/lib/types";
 const REASONS = Object.keys(DISPUTE_REASON_META) as DisputeReason[];
 
 function DisputeContent({ tradeId }: { tradeId: string }) {
-  const router = useRouter();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id ?? "";
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [trade, setTrade] = useState<Trade | null>(null);
   const [existingDispute, setExistingDispute] = useState<Dispute | null>(null);
   const [missing, setMissing] = useState(false);
   const [reason, setReason] = useState<DisputeReason>("ticket_not_transferred");
   const [statement, setStatement] = useState("");
-  const [fileName, setFileName] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -63,14 +60,15 @@ function DisputeContent({ tradeId }: { tradeId: string }) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 lg:px-8">
         <h1 className="font-display text-3xl leading-[1.08] sm:text-4xl">Dispute status</h1>
-        <AlertBanner variant="warning" title="Under review" className="mt-6">
-          Support is reviewing your case with {otherUser.displayName}. You&rsquo;ll get a notification
-          the moment there&rsquo;s an update.
+        <AlertBanner variant="warning" title={existingDispute.status === "resolved" ? "Resolved" : "Under review"} className="mt-6">
+          {existingDispute.status === "resolved" ? existingDispute.resolution ?? "Support has resolved this case." : `Support is reviewing your case with ${otherUser.displayName}. You'll get a notification when there is an update.`}
         </AlertBanner>
         <div className="mt-6 rounded-lg border border-border bg-card p-5">
           <p className="text-sm font-medium">{DISPUTE_REASON_META[existingDispute.reason].label}</p>
           <p className="mt-2 text-sm text-muted-foreground">&ldquo;{existingDispute.statement}&rdquo;</p>
         </div>
+        <div className="mt-4 space-y-2">{existingDispute.evidence?.map(file => <a key={file.id} className="block text-sm underline" href={`/api/disputes/evidence/${file.id}`} target="_blank" rel="noreferrer">{file.originalName}</a>)}</div>
+        {existingDispute.status !== "resolved" && <EvidenceUpload target={{ disputeId: existingDispute.id }} onUploaded={() => { fetch(`/api/trades/${tradeId}`, { cache: "no-store" }).then(response => response.json()).then(data => setExistingDispute(data.dispute)).catch(() => toast.error("Reload the page to see your uploaded evidence.")); }} />}
         <div className="mt-6 rounded-lg border border-border bg-card p-5">
           <p className="mb-4 text-sm font-medium">Transaction timeline</p>
           <TransactionTimeline trade={trade} viewerId={currentUserId} />
@@ -102,10 +100,10 @@ function DisputeContent({ tradeId }: { tradeId: string }) {
           }
           setPending(true);
           try {
-            await createDisputeAction(trade.id, reason, statement);
+            const created = await createDisputeAction(trade.id, reason, statement);
+            setExistingDispute({ id: created.id, tradeId: trade.id, reason, statement, status: "submitted", filedByUserId: currentUserId, filedAt: new Date().toISOString(), evidence: [] });
             toast.success("Dispute submitted. Support has been notified.");
-            router.push(`/trades/${trade.id}`);
-            router.refresh();
+
           } catch (error) {
             toast.error(error instanceof Error ? error.message : "Could not submit that dispute.");
           } finally {
@@ -137,34 +135,7 @@ function DisputeContent({ tradeId }: { tradeId: string }) {
           />
         </div>
 
-        <div className="space-y-2">
-          <Label>Supporting evidence (optional)</Label>
-          {!fileName ? (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-8 text-center hover:border-foreground/30"
-            >
-              <Upload className="h-5 w-5 text-muted-foreground" aria-hidden />
-              <span className="text-sm">Upload a screenshot or document</span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
-              <FileCheck2 className="h-4 w-4 text-success" aria-hidden />
-              <span className="text-sm">{fileName}</span>
-            </div>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="sr-only"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) setFileName(file.name);
-            }}
-          />
-          <p className="text-xs text-muted-foreground">File names are noted locally for now. Uploads are not stored yet.</p>
-        </div>
+        <p className="text-sm text-muted-foreground">After submitting, you can attach private screenshots or documents to your saved case.</p>
 
         <AlertBanner variant="info" title="What happens next">
           A specialist reviews the timeline, your statement, and any evidence from both sides.

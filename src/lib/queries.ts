@@ -198,7 +198,7 @@ export async function queryTradeById(id: string): Promise<Trade | null> {
 }
 
 export async function queryDisputeForTrade(tradeId: string) {
-  return prisma.dispute.findUnique({ where: { tradeId } });
+  return prisma.dispute.findUnique({ where: { tradeId }, include: { evidence: { where: { uploadStatus: "uploaded" }, select: { id: true, originalName: true }, orderBy: { createdAt: "asc" } } } });
 }
 
 export async function queryThreadsForUser(userId: string): Promise<MessageThread[]> {

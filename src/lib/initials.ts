@@ -5,7 +5,7 @@ export function initialsFromName(name: string): string {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
-export const BLOCKED_MESSAGE_PATTERN = /\b\d{13,19}\b|qr code|barcode|card number|cvv/i;
+export const BLOCKED_MESSAGE_PATTERN = /\b(?:\d[ -]?){12,18}\d\b|qr\s*code|barcode|card\s*number|cvv/i;
 
 export function messageLooksUnsafe(body: string): boolean {
   return BLOCKED_MESSAGE_PATTERN.test(body);

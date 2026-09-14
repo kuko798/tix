@@ -9,6 +9,10 @@ import { assertNotBlocked, requireActiveUser } from "@/lib/server/policy";
 import type { TradeAsset } from "@/lib/types";
 import { sendNotificationEmail } from "@/lib/server/notifications";
 import { assertPendingOffer, calculateProtectedAmounts } from "@/lib/domain/marketplace";
+import { toGame, type ListingEvent } from "@/lib/mappers";
+import { queryListingById } from "@/lib/queries";
+
+const eventInclude = { league: true, venue: true, homeTeam: { include: { league: true } }, awayTeam: { include: { league: true } } } as const;
 
 const createSchema = z.object({
   listingId: z.string().cuid(),
@@ -39,11 +43,13 @@ function listingAsset(row: {
   section: string;
   row: string;
   estimatedValuePerTicket: number;
+  event?: ListingEvent | null;
 }): TradeAsset {
   return {
     id: row.id,
     type: "tickets",
     gameId: row.gameId,
+    game: row.event ? toGame(row.event) : undefined,
     quantity: row.quantity,
     section: row.section,
     row: row.row,
@@ -67,6 +73,7 @@ export async function createPendingOffer(rawInput: unknown) {
     },
   });
   if (!listing) throw new Error("This listing is no longer available.");
+  if (!await queryListingById(listing.id, user.id)) throw new Error("This listing is not available to you.");
   if (listing.sellerId === user.id) throw new Error("You cannot offer on your own listing.");
   await assertNotBlocked(user.id, listing.sellerId);
 
@@ -85,7 +92,9 @@ export async function createPendingOffer(rawInput: unknown) {
     throw new Error("One or more tickets in this offer are unavailable or do not belong to you.");
   }
   if (offeredListingIds.includes(listing.id)) throw new Error("A listing cannot be offered for itself.");
-  if (offeredListings.length === 0 && input.cashAdjustment <= 0 && listing.listingType === "trade") {
+  if (listing.listingType === "sale" && offeredListings.length > 0) throw new Error("This listing accepts cash offers only.");
+  if (listing.listingType === "trade" && offeredListings.length === 0) throw new Error("This listing requires tickets in return.");
+  if (offeredListings.length === 0 && input.cashAdjustment <= 0) {
     throw new Error("Add tickets or a cash amount to the offer.");
   }
 
@@ -151,10 +160,12 @@ export async function respondToPendingOffer(rawInput: unknown) {
   const result = await prisma.$transaction(async (tx) => {
     const offer = await tx.offer.findFirst({
       where: { id: input.offerId, actionRequiredById: user.id },
-      include: { listing: true },
+      include: { listing: { include: { event: { include: eventInclude } } } },
     });
     if (!offer) throw new Error("Offer not found.");
     assertPendingOffer({ ...offer, expectedVersion: input.expectedVersion });
+    await assertNotBlocked(offer.senderId, offer.recipientId);
+    if (offer.listing.expiresAt && offer.listing.expiresAt <= new Date()) throw new Error("This event is no longer available.");
     if (input.decision === "decline") {
       const changed = await tx.offer.updateMany({
         where: { id: offer.id, status: "pending", version: input.expectedVersion },
@@ -176,7 +187,7 @@ export async function respondToPendingOffer(rawInput: unknown) {
 
     const claimed = await tx.listing.updateMany({
       where: { id: offer.listingId, status: "active", version: offer.listing.version },
-      data: { status: "pending", activeFingerprint: null, version: { increment: 1 } },
+      data: { status: "pending", version: { increment: 1 } },
     });
     if (claimed.count !== 1) throw new Error("These tickets were reserved by another accepted offer.");
     const accepted = await tx.offer.updateMany({
@@ -187,13 +198,14 @@ export async function respondToPendingOffer(rawInput: unknown) {
 
     const offeredListingIds = JSON.parse(offer.offeredListingIds) as string[];
     const offeredRows = offeredListingIds.length
-      ? await tx.listing.findMany({ where: { id: { in: offeredListingIds }, sellerId: offer.senderId, status: "active" } })
+      ? await tx.listing.findMany({ where: { id: { in: offeredListingIds }, sellerId: offer.senderId, status: "active", OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, include: { event: { include: eventInclude } } })
       : [];
     if (offeredRows.length !== offeredListingIds.length) throw new Error("Tickets in this offer are no longer available.");
+    if (!offeredRows.length && offer.cashAmountCents <= 0) throw new Error("A cash-only offer must include a positive total price.");
     if (offeredListingIds.length) {
       const reserved = await tx.listing.updateMany({
         where: { id: { in: offeredListingIds }, sellerId: offer.senderId, status: "active" },
-        data: { status: "pending", activeFingerprint: null, version: { increment: 1 } },
+        data: { status: "pending", version: { increment: 1 } },
       });
       if (reserved.count !== offeredListingIds.length) throw new Error("Tickets in this offer were reserved elsewhere.");
     }
@@ -209,7 +221,7 @@ export async function respondToPendingOffer(rawInput: unknown) {
       cashAmountCents: offer.cashAmountCents,
       isDirectSale,
     });
-    const transferDeadline = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    const transferDeadline = new Date(Math.min(Date.now() + 5 * 24 * 60 * 60 * 1000, offer.listing.expiresAt?.getTime() ?? Infinity, ...offeredRows.map(row => row.expiresAt?.getTime() ?? Infinity)));
     const offeredAssets = offeredRows.map(listingAsset);
     const receivedAsset = listingAsset(offer.listing);
     const legacyTrade = await tx.trade.create({
@@ -237,7 +249,7 @@ export async function respondToPendingOffer(rawInput: unknown) {
         legacyTradeId: legacyTrade.id,
         type: isDirectSale ? "sale" : offeredRows.length ? "swap" : "ticket_plus_cash",
         ticketAmountCents,
-        cashAdjustmentCents: offer.cashAmountCents,
+        cashAdjustmentCents: isDirectSale ? 0 : offer.cashAmountCents,
         platformFeeCents,
         depositAmountCents,
       },
@@ -295,6 +307,7 @@ export async function createCounterOffer(rawInput: unknown) {
       where: { id: input.offerId, actionRequiredById: user.id },
     });
     if (!original) throw new Error("Offer not found.");
+    if (!(JSON.parse(original.offeredListingIds) as string[]).length && input.cashAdjustment <= 0) throw new Error("A cash-only counteroffer must include a positive total price.");
     assertPendingOffer({ ...original, expectedVersion: input.expectedVersion });
     const otherUserId = original.senderId === user.id ? original.recipientId : original.senderId;
     await assertNotBlocked(user.id, otherUserId);

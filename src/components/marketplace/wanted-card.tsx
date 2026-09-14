@@ -7,9 +7,9 @@ import type { WantedRequest } from "@/lib/types";
 
 export function WantedCard({ request }: { request: WantedRequest }) {
   const game = request.game ?? getGame(request.desiredGameId);
-  const home = getTeam(game.homeTeamId);
-  const away = getTeam(game.awayTeamId);
-  const venue = getVenue(game.venueId);
+  const home = game.homeTeam ?? getTeam(game.homeTeamId);
+  const away = game.awayTeam ?? getTeam(game.awayTeamId);
+  const venue = game.venue ?? getVenue(game.venueId);
   const quantityLabel =
     request.quantityMin === request.quantityMax
       ? `${request.quantityMin} tickets`

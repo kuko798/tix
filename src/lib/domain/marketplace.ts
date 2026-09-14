@@ -15,9 +15,10 @@ export function calculateProtectedAmounts(input: {
   cashAmountCents: number;
   isDirectSale: boolean;
 }) {
-  const protectedValueCents = Math.max(input.listingValueCents, Math.abs(input.cashAmountCents));
+  const salePriceCents = input.cashAmountCents > 0 ? input.cashAmountCents : input.listingValueCents;
+  const protectedValueCents = input.isDirectSale ? salePriceCents : Math.max(input.listingValueCents, Math.abs(input.cashAmountCents));
   return {
-    ticketAmountCents: input.isDirectSale ? input.listingValueCents : 0,
+    ticketAmountCents: input.isDirectSale ? salePriceCents : 0,
     platformFeeCents: Math.max(500, Math.round(protectedValueCents * 0.045)),
     depositAmountCents: protectedValueCents > 50_000 ? 10_000 : 5_000,
   };

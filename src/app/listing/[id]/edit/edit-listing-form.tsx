@@ -9,15 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { EvidenceUpload } from "@/components/marketplace/evidence-upload";
 
-type Listing = { id: string; version: number; section: string; row: string; quantity: number; faceValuePerTicket: number; acceptsGamesDescription: string; accessible: boolean };
+type Listing = { id: string; version: number; status: string; section: string; row: string; quantity: number; faceValuePerTicket: number; acceptsGamesDescription: string; accessible: boolean };
 
 export function EditListingForm({ listing }: { listing: Listing }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [form, setForm] = useState(listing);
   return (
-    <form className="mt-8 space-y-5 border-t border-border pt-6" onSubmit={(event) => { event.preventDefault(); startTransition(async () => {
+    <><form className="mt-8 space-y-5 border-t border-border pt-6" onSubmit={(event) => { event.preventDefault(); startTransition(async () => {
       try { await editListingAction({ listingId: form.id, expectedVersion: form.version, section: form.section, row: form.row, quantity: form.quantity, faceValuePerTicket: form.faceValuePerTicket, acceptsGamesDescription: form.acceptsGamesDescription, accessible: form.accessible }); toast.success("Listing updated"); router.push(`/listing/${form.id}`); router.refresh(); }
       catch (error) { toast.error(error instanceof Error ? error.message : "The listing could not be updated."); }
     }); }}>
@@ -26,6 +27,6 @@ export function EditListingForm({ listing }: { listing: Listing }) {
       <div className="space-y-1.5"><Label htmlFor="edit-accepts">Desired games or offer notes</Label><Textarea id="edit-accepts" maxLength={1000} value={form.acceptsGamesDescription} onChange={(event) => setForm((current) => ({ ...current, acceptsGamesDescription: event.target.value }))} /></div>
       <label className="flex items-center justify-between border border-border px-3 py-3 text-sm">Accessible seating<Switch checked={form.accessible} onCheckedChange={(accessible) => setForm((current) => ({ ...current, accessible }))} /></label>
       <div className="flex gap-3"><Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save changes"}</Button><Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button></div>
-    </form>
+    </form>{listing.status === "paused" && <EvidenceUpload target={{ listingId: listing.id }} onUploaded={() => { router.push(`/listing/${listing.id}`); router.refresh(); }} />}</>
   );
 }

@@ -3,7 +3,6 @@
 import { DollarSign, GripVertical, ParkingSquare, Ticket, X } from "lucide-react";
 import { TeamCrest } from "@/components/marketplace/team-crest";
 import { Button } from "@/components/ui/button";
-import { getGame, getTeam } from "@/lib/catalog";
 import { formatCurrency, formatGameDate } from "@/lib/format";
 import type { TradeAsset } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -19,8 +18,8 @@ export function TradeAssetCard({
   draggable?: boolean;
   className?: string;
 }) {
-  const game = asset.gameId ? getGame(asset.gameId) : undefined;
-  const homeTeam = game ? getTeam(game.homeTeamId) : undefined;
+  const game = asset.game;
+  const homeTeam = game?.homeTeam;
 
   return (
     <div
@@ -39,7 +38,7 @@ export function TradeAssetCard({
           {asset.type === "parking" ? (
             <ParkingSquare className="h-4 w-4 text-muted-foreground" aria-hidden />
           ) : (
-            <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
+            asset.type === "tickets" ? <Ticket className="h-4 w-4 text-muted-foreground" aria-hidden /> : <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
           )}
         </div>
       )}

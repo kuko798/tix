@@ -30,6 +30,7 @@ import { AlertBanner } from "@/components/marketplace/alert-banner";
 import { MatchupHeader } from "@/components/marketplace/matchup-header";
 import { PriceBreakdown } from "@/components/marketplace/price-breakdown";
 import { games as developmentGames, getTeam } from "@/lib/catalog";
+import { uploadPrivateEvidence } from "@/components/marketplace/evidence-upload";
 import { createListingAction } from "@/lib/actions";
 import type { Circle } from "@/lib/types";
 import type { Game, ListingType, ListingVisibility, SeatLevel, Sport, TicketIssuer } from "@/lib/types";
@@ -103,6 +104,7 @@ export default function CreateListingPage() {
   const [circles, setCircles] = useState<Circle[]>([]);
   const [games, setGames] = useState<Game[]>(developmentGames);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -147,7 +149,7 @@ export default function CreateListingPage() {
     if (isLastStep) {
       if (publishing) return;
       setPublishing(true);
-      createListingAction({
+      (draftId ? Promise.resolve({ id: draftId }) : createListingAction({
         gameId: form.gameId,
         issuer: form.issuer,
         section: form.section,
@@ -166,37 +168,11 @@ export default function CreateListingPage() {
         evidenceFileName: form.evidenceFileName,
         visibility: form.visibility,
         circleId: form.circleId || undefined,
-      })
+      }))
         .then(async (listing) => {
-          if (evidenceFile) {
-            const digest = await crypto.subtle.digest("SHA-256", await evidenceFile.arrayBuffer());
-            const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-            const request = await fetch("/api/evidence", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                listingId: listing.id,
-                originalName: evidenceFile.name,
-                mimeType: evidenceFile.type,
-                byteSize: evidenceFile.size,
-                sha256,
-              }),
-            });
-            const upload = await request.json();
-            if (!request.ok) throw new Error(upload.error ?? "Could not prepare the private evidence upload.");
-            const put = await fetch(upload.uploadUrl, {
-              method: "PUT",
-              headers: { "Content-Type": evidenceFile.type },
-              body: evidenceFile,
-            });
-            if (!put.ok) throw new Error("The private evidence upload failed.");
-            const confirmation = await fetch("/api/evidence", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ evidenceId: upload.evidenceId }),
-            });
-            if (!confirmation.ok) throw new Error("The evidence upload could not be confirmed.");
-          }
+          setDraftId(listing.id);
+          if (!evidenceFile) throw new Error("Choose ownership evidence to finish publishing.");
+          await uploadPrivateEvidence(evidenceFile, { listingId: listing.id });
           toast(
             "Listing published to " +
               (form.visibility === "public"
@@ -548,7 +524,6 @@ export default function CreateListingPage() {
             {[
               { value: "public", label: "Public marketplace", desc: "Anyone on GameSwap can see and offer on this listing." },
               { value: "circle", label: "Trusted fan circle", desc: "Only members of a circle you belong to can see it." },
-              { value: "private", label: "Private invitation", desc: "Only people you share the link with can see it." },
             ].map((option) => (
               <label
                 key={option.value}
@@ -640,7 +615,7 @@ export default function CreateListingPage() {
           type="button"
           variant="outline"
           onClick={() => setStep((s) => Math.max(0, s - 1))}
-          disabled={step === 0}
+          disabled={step === 0 || publishing || Boolean(draftId)}
           className="h-11 gap-1"
         >
           <ChevronLeft className="h-4 w-4" aria-hidden />

@@ -161,6 +161,7 @@ export interface UserProfile {
   responseRatePct: number;
   cancellationRatePct: number;
   favoriteTeamIds: string[];
+  favoriteTeams?: Team[];
   circleIds: string[];
   reviews: Review[];
 }
@@ -171,6 +172,7 @@ export interface TradeAsset {
   id: string;
   type: TradeAssetType;
   gameId?: string;
+  game?: Game;
   quantity?: number;
   section?: string;
   row?: string;
@@ -235,6 +237,8 @@ export interface Dispute {
   statement: string;
   filedByUserId: string;
   filedAt: string;
+  evidence?: Array<{ id: string; originalName: string }>;
+  resolution?: string | null;
 }
 
 export type CircleType =

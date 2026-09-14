@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Clock } from "lucide-react";
 import { TeamCrest } from "@/components/marketplace/team-crest";
 import { TRADE_STAGE_META } from "@/lib/constants";
-import { getGame, getTeam } from "@/lib/catalog";
 import { formatCountdown } from "@/lib/format";
 import type { Trade } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -23,7 +22,7 @@ const STAGE_TONE: Record<Trade["stage"], string> = {
 export function TradeSummaryCard({ trade, viewerId }: { trade: Trade; viewerId: string }) {
   const otherUser = trade.userAId === viewerId ? trade.participantB : trade.participantA;
   const primaryAsset = trade.assetsFromA.find((a) => a.gameId) ?? trade.assetsFromB.find((a) => a.gameId);
-  const game = primaryAsset?.gameId ? getGame(primaryAsset.gameId) : null;
+  const game = primaryAsset?.game;
   const gameCount = new Set(
     [...trade.assetsFromA, ...trade.assetsFromB].map((a) => a.gameId).filter(Boolean)
   ).size;
@@ -40,10 +39,10 @@ export function TradeSummaryCard({ trade, viewerId }: { trade: Trade; viewerId: 
       className="flex flex-col gap-3 border border-border bg-card p-4 transition-colors duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-muted/30 sm:flex-row sm:items-center"
     >
       <div className="flex items-center gap-3 sm:w-72 sm:shrink-0">
-        {game && <TeamCrest team={getTeam(game.homeTeamId)} size="sm" />}
+        {game?.homeTeam && <TeamCrest team={game.homeTeam} size="sm" />}
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">
-            {game ? `${getTeam(game.awayTeamId).name} at ${getTeam(game.homeTeamId).name}` : "Trade"}
+            {game?.awayTeam && game.homeTeam ? `${game.awayTeam.name} at ${game.homeTeam.name}` : "Trade"}
             {gameCount > 1 ? ` + ${gameCount - 1} more` : ""}
           </p>
           <p className="text-xs text-muted-foreground">with {otherUser.displayName}</p>

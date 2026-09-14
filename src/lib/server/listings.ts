@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireActiveUser } from "@/lib/server/policy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { audit } from "@/lib/server/audit";
+import { assertServiceReady } from "@/lib/server/env";
 
 const schema = z.object({
   gameId: z.string().min(1).max(200),
@@ -23,7 +24,7 @@ const schema = z.object({
   acceptsGamesDescription: z.string().trim().max(1000).optional(),
   flexibleOnDate: z.boolean(),
   flexibleOnSection: z.boolean(),
-  evidenceFileName: z.string().nullable().optional(),
+  evidenceFileName: z.string().trim().min(1).max(200),
   visibility: z.enum(["public", "circle", "private"]),
   circleId: z.string().cuid().optional(),
   accessible: z.boolean().optional(),
@@ -40,7 +41,7 @@ const editSchema = z.object({
   accessible: z.boolean(),
 });
 
-function fingerprint(input: { sellerId: string; gameId: string; section: string; row: string; quantity: number }) {
+export function fingerprint(input: { sellerId: string; gameId: string; section: string; row: string; quantity: number }) {
   return createHash("sha256")
     .update(`${input.sellerId}|${input.gameId}|${input.section.toLowerCase()}|${input.row.toLowerCase()}|${input.quantity}`)
     .digest("hex");
@@ -50,6 +51,8 @@ export async function createListing(rawInput: unknown) {
   const user = await requireActiveUser();
   await enforceRateLimit({ scope: "listing-create", userId: user.id, limit: 12, windowSeconds: 3600 });
   const input = schema.parse(rawInput);
+  assertServiceReady("privateUploads");
+  if (input.visibility === "private") throw new Error("Choose the public marketplace or an approved fan circle.");
   if (input.visibility === "circle") {
     if (!input.circleId) throw new Error("Choose a fan circle for this listing.");
     const membership = await prisma.circleMember.findUnique({
@@ -65,8 +68,8 @@ export async function createListing(rawInput: unknown) {
     throw new Error("This event is not open for new listings.");
   }
   const activeFingerprint = fingerprint({ sellerId: user.id, ...input });
-  const duplicate = await prisma.listing.findFirst({ where: { activeFingerprint, status: { in: ["active", "pending"] } } });
-  if (duplicate) throw new Error("You already have an active listing for these seats.");
+  const duplicate = await prisma.listing.findFirst({ where: { activeFingerprint, status: { in: ["active", "pending", "paused"] } } });
+  if (duplicate) throw new Error("You already have a listing for these seats. Open your saved listing to finish the upload.");
 
   const listing = await prisma.listing.create({
     data: {
@@ -93,35 +96,12 @@ export async function createListing(rawInput: unknown) {
       circleId: input.visibility === "circle" ? input.circleId : null,
       accessible: input.accessible ?? false,
       transferReadiness: "information_submitted",
+      status: "paused",
       evidenceFileName: null,
       expiresAt,
       activeFingerprint,
     },
   });
-  const matchingRequests = event ? await prisma.wantedRequest.findMany({
-    where: {
-      eventId: input.gameId,
-      status: "active",
-      expiresAt: { gt: new Date() },
-      quantityMin: { lte: input.quantity },
-      maxBudget: { gte: input.faceValuePerTicket * input.quantity },
-      requesterId: { not: user.id },
-    },
-    select: { id: true, requesterId: true },
-    take: 25,
-  }) : [];
-  if (matchingRequests.length) {
-    await prisma.notification.createMany({
-      data: matchingRequests.map((request) => ({
-        userId: request.requesterId,
-        type: "wanted_match",
-        title: "New listing matches your wanted post",
-        body: "The event, quantity, and budget align with your request.",
-        urgency: "medium",
-        relatedListingId: listing.id,
-      })),
-    });
-  }
   await audit({ actorUserId: user.id, action: "listing.created", entityType: "listing", entityId: listing.id });
   return { id: listing.id };
 }
@@ -131,6 +111,11 @@ export async function updateOwnedListingStatus(rawListingId: unknown, status: "a
   const listingId = z.string().cuid().parse(rawListingId);
   const listing = await prisma.listing.findFirst({ where: { id: listingId, sellerId: user.id } });
   if (!listing) throw new Error("Listing not found.");
+  if (status === "active") {
+    if (listing.expiresAt && listing.expiresAt <= new Date()) throw new Error("This listing has expired.");
+    const evidence = await prisma.ownershipEvidence.findFirst({ where: { listingId, reviewStatus: { in: ["pending", "approved"] } }, select: { id: true } });
+    if (!evidence) throw new Error("Upload ownership evidence before activating this listing.");
+  }
   if (["completed", "expired", "cancelled"].includes(listing.status)) throw new Error("This listing can no longer be changed.");
   const hasAcceptedOffer = await prisma.offer.count({ where: { listingId, status: "accepted" } });
   if (hasAcceptedOffer && status !== "cancelled") throw new Error("A listing with an accepted offer cannot be changed.");

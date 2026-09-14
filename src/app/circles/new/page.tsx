@@ -74,7 +74,7 @@ export default function CreateCirclePage() {
       >
         <div className="space-y-1.5">
           <Label htmlFor="circle-name">Name</Label>
-          <Input id="circle-name" required value={name} onChange={(e) => setName(e.target.value)} className="h-11" />
+          <Input id="circle-name" required minLength={3} maxLength={100} value={name} onChange={(e) => setName(e.target.value)} className="h-11" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="circle-type">Type</Label>
@@ -108,7 +108,7 @@ export default function CreateCirclePage() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="circle-desc">Description</Label>
-          <Textarea id="circle-desc" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Textarea id="circle-desc" required minLength={10} maxLength={2000} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <Button type="submit" size="lg" className="h-11 w-full" disabled={pending}>
           {pending ? "Creating…" : "Create circle"}

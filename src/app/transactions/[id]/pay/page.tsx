@@ -17,7 +17,7 @@ export default async function TransactionPaymentPage({ params }: { params: Promi
   });
 
   if (!transaction || transaction.buyerId !== user.id) notFound();
-  if (["payment_authorized", "transfer_in_progress", "completed"].includes(transaction.status)) {
+  if (!["awaiting_payment", "payment_pending", "payment_failed"].includes(transaction.status)) {
     redirect(transaction.legacyTradeId ? `/trades/${transaction.legacyTradeId}` : "/trades");
   }
 

@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { toUserProfile } from "@/lib/mappers";
+import { toUserProfile, toTeam } from "@/lib/mappers";
 import type { UserProfile } from "@/lib/types";
 
 export async function getSessionUser() {
@@ -47,9 +47,11 @@ export async function getProfileById(id: string): Promise<UserProfile | null> {
     },
   });
   if (!user) return null;
-  return toUserProfile(
+  const profile = toUserProfile(
     user,
     user.reviewsReceived,
     user.circleMemberships.map((m) => m.circleId)
   );
+  profile.favoriteTeams = (await prisma.team.findMany({ where: { id: { in: profile.favoriteTeamIds } }, include: { league: true } })).map(toTeam);
+  return profile;
 }

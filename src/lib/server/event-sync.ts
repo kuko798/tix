@@ -8,7 +8,7 @@ type TicketmasterEvent = {
   name: string;
   url?: string;
   dates?: { start?: { dateTime?: string }; status?: { code?: string } };
-  classifications?: Array<{ segment?: { name?: string }; league?: { name?: string } }>;
+  classifications?: Array<{ segment?: { name?: string }; genre?: { name?: string }; subGenre?: { name?: string } }>;
   _embedded?: {
     venues?: Array<{ id: string; name: string; city?: { name?: string }; state?: { stateCode?: string }; country?: { countryCode?: string }; timezone?: string }>;
     attractions?: Array<{ id: string; name: string; locale?: string; externalLinks?: unknown; classifications?: Array<{ segment?: { name?: string } }> }>;
@@ -27,6 +27,8 @@ export async function syncTicketmasterEvents() {
   url.searchParams.set("classificationName", "sports");
   url.searchParams.set("size", "200");
   url.searchParams.set("sort", "date,asc");
+  const now = new Date();
+  url.searchParams.set("startDateTime", now.toISOString().replace(/\.\d{3}Z$/, "Z"));
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Event provider returned ${response.status}.`);
   const payload = await response.json() as { _embedded?: { events?: TicketmasterEvent[] } };
@@ -36,9 +38,13 @@ export async function syncTicketmasterEvents() {
     const startsAt = event.dates?.start?.dateTime ? new Date(event.dates.start.dateTime) : null;
     const venue = event._embedded?.venues?.[0];
     const attractions = event._embedded?.attractions ?? [];
-    if (!startsAt || Number.isNaN(startsAt.getTime()) || !venue || attractions.length < 2) continue;
-    const leagueName = event.classifications?.[0]?.league?.name ?? "Sports";
-    const sport = event.classifications?.[0]?.segment?.name ?? "Sports";
+    if (!startsAt || Number.isNaN(startsAt.getTime()) || startsAt <= now || !venue || attractions.length < 2) continue;
+    const classification = event.classifications?.find(row => row.segment?.name === "Sports");
+    const sport = classification?.genre?.name;
+    if (!sport || !["Football", "Basketball", "Baseball", "Hockey", "Soccer"].includes(sport)) continue;
+    const leagueName = classification?.subGenre?.name || sport;
+    const statusCode = event.dates?.status?.code;
+    const status = statusCode === "onsale" || statusCode === "offsale" || !statusCode ? "scheduled" : statusCode;
     const league = await prisma.league.upsert({
       where: { slug: slug(leagueName) },
       create: { slug: slug(leagueName), name: leagueName, sport },
@@ -82,10 +88,10 @@ export async function syncTicketmasterEvents() {
         name: event.name,
         leagueId: league.id,
         venueId: venueRow.id,
-        awayTeamId: teams[0].id,
-        homeTeamId: teams[1].id,
+        homeTeamId: teams[0].id,
+        awayTeamId: teams[1].id,
         startsAt,
-        status: event.dates?.status?.code ?? "scheduled",
+        status,
         source: "ticketmaster-discovery",
         sourceUrl: event.url,
       },
@@ -93,14 +99,39 @@ export async function syncTicketmasterEvents() {
         name: event.name,
         leagueId: league.id,
         venueId: venueRow.id,
-        awayTeamId: teams[0].id,
-        homeTeamId: teams[1].id,
+        homeTeamId: teams[0].id,
+        awayTeamId: teams[1].id,
         startsAt,
-        status: event.dates?.status?.code ?? "scheduled",
+        status,
         sourceUrl: event.url,
       },
     });
     imported += 1;
   }
   return { imported, received: events.length };
+}
+
+export async function refreshListedTicketmasterEvents() {
+  if (!env.TICKETMASTER_API_KEY) return { checked: 0, errors: 0 };
+  const events = await prisma.event.findMany({ where: { source: "ticketmaster", externalId: { not: null }, listings: { some: { status: { in: ["active", "paused", "pending"] } } } }, orderBy: { updatedAt: "asc" }, take: 5 });
+  let errors = 0;
+  for (const event of events) {
+    try {
+      const url = new URL(`https://app.ticketmaster.com/discovery/v2/events/${encodeURIComponent(event.externalId!)}.json`);
+      url.searchParams.set("apikey", env.TICKETMASTER_API_KEY!);
+      const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw new Error("Event refresh failed.");
+      const payload = await response.json() as TicketmasterEvent;
+      const raw = payload.dates?.status?.code;
+      const status = !raw || ["onsale", "offsale"].includes(raw) ? "scheduled" : raw === "canceled" ? "cancelled" : raw;
+      const changedDate = payload.dates?.start?.dateTime ? new Date(payload.dates.start.dateTime) : event.startsAt;
+      const startsAt = Number.isNaN(changedDate.getTime()) ? event.startsAt : changedDate;
+      await prisma.$transaction([
+        prisma.event.update({ where: { id: event.id }, data: { status, startsAt } }),
+        prisma.listing.updateMany({ where: { eventId: event.id, status: { in: ["active", "paused"] } }, data: { expiresAt: startsAt } }),
+        prisma.trade.updateMany({ where: { listing: { eventId: event.id }, transferDeadline: { gt: startsAt }, stage: { notIn: ["completed", "cancelled", "disputed"] } }, data: { transferDeadline: startsAt } }),
+      ]);
+    } catch { errors++; await prisma.event.update({ where: { id: event.id }, data: { updatedAt: new Date() } }); }
+  }
+  return { checked: events.length, errors };
 }

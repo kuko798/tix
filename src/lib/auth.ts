@@ -1,15 +1,20 @@
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
 import { prisma } from "@/lib/prisma";
 import { initialsFromName } from "@/lib/initials";
 import { env, serviceReadiness } from "@/lib/server/env";
 import { sendTransactionalEmail } from "@/lib/server/email";
+import { sendEmailVerification } from "@/lib/server/email-verification";
+import { RateLimitError } from "@/lib/server/rate-limit";
 
 export const auth = betterAuth({
   appName: "GameSwap",
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
+  // GameSwap consumes its own hashed, single-use verification links.
+  disabledPaths: ["/verify-email", "/delete-user", "/delete-user/callback"],
   database: prismaAdapter(prisma, {
     provider: env.DATABASE_URL.startsWith("file:") ? "sqlite" : "postgresql",
   }),
@@ -30,14 +35,15 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: serviceReadiness.email,
     sendOnSignIn: serviceReadiness.email,
-    autoSignInAfterVerification: true,
-    expiresIn: 3600,
-    sendVerificationEmail: async ({ user, url }) => {
-      await sendTransactionalEmail({
-        to: user.email,
-        subject: "Verify your GameSwap email",
-        text: `Verify your GameSwap email address: ${url}\n\nThis link expires in one hour.`,
-      });
+    sendVerificationEmail: async ({ user }) => {
+      try {
+        await sendEmailVerification(user);
+      } catch (error) {
+        if (error instanceof RateLimitError) {
+          throw new APIError("TOO_MANY_REQUESTS", { message: error.message });
+        }
+        throw new APIError("SERVICE_UNAVAILABLE", { message: "The verification email could not be sent. Please try again." });
+      }
     },
   },
   user: {
@@ -55,7 +61,7 @@ export const auth = betterAuth({
       },
     },
     deleteUser: {
-      enabled: true,
+      enabled: false,
       sendDeleteAccountVerification: async ({ user, url }) => {
         await sendTransactionalEmail({
           to: user.email,

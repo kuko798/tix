@@ -23,29 +23,26 @@ export async function enforceRateLimit(input: {
   const identity = input.userId ?? createHash("sha256").update(ip).digest("hex");
   const key = `${input.scope}:${identity}`;
   const now = new Date();
-  const current = await prisma.rateLimitBucket.findUnique({ where: { key } });
-
-  if (!current || current.expiresAt <= now) {
-    await prisma.rateLimitBucket.upsert({
+  await prisma.rateLimitBucket.upsert({
       where: { key },
       create: {
         key,
-        count: 1,
+        count: 0,
         windowStart: now,
         expiresAt: new Date(now.getTime() + input.windowSeconds * 1000),
       },
-      update: {
-        count: 1,
-        windowStart: now,
-        expiresAt: new Date(now.getTime() + input.windowSeconds * 1000),
-      },
+      update: { key },
     });
-    return;
-  }
-
-  if (current.count >= input.limit) {
+  await prisma.rateLimitBucket.updateMany({
+    where: { key, expiresAt: { lte: now } },
+    data: { count: 0, windowStart: now, expiresAt: new Date(now.getTime() + input.windowSeconds * 1000) },
+  });
+  const consumed = await prisma.rateLimitBucket.updateMany({
+    where: { key, expiresAt: { gt: now }, count: { lt: input.limit } },
+    data: { count: { increment: 1 } },
+  });
+  if (!consumed.count) {
+    const current = await prisma.rateLimitBucket.findUniqueOrThrow({ where: { key }, select: { expiresAt: true } });
     throw new RateLimitError(Math.max(1, Math.ceil((current.expiresAt.getTime() - now.getTime()) / 1000)));
   }
-
-  await prisma.rateLimitBucket.update({ where: { key }, data: { count: { increment: 1 } } });
 }

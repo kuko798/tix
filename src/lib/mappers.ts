@@ -69,7 +69,7 @@ export function toUserProfile(
   };
 }
 
-type ListingEvent = {
+export type ListingEvent = {
   id: string;
   name: string;
   startsAt: Date;
@@ -79,9 +79,8 @@ type ListingEvent = {
   awayTeam: ({ id: string; name: string; city: string; abbreviation: string; primaryColor: string | null; secondaryColor: string | null; league: { slug: string } } | null);
 };
 
-function toGame(event: ListingEvent): Game | undefined {
-  if (!event.homeTeam || !event.awayTeam) return undefined;
-  const team = (value: NonNullable<ListingEvent["homeTeam"]>) => ({
+export function toTeam(value: NonNullable<ListingEvent["homeTeam"]>) {
+  return {
     id: value.id,
     name: value.name,
     city: value.city,
@@ -89,7 +88,11 @@ function toGame(event: ListingEvent): Game | undefined {
     league: value.league.slug.toUpperCase() as League,
     primaryColor: value.primaryColor ?? "#243428",
     secondaryColor: value.secondaryColor ?? "#eef0e6",
-  });
+  };
+}
+
+export function toGame(event: ListingEvent): Game | undefined {
+  if (!event.homeTeam || !event.awayTeam) return undefined;
   return {
     id: event.id,
     sport: event.league.sport as Sport,
@@ -99,8 +102,8 @@ function toGame(event: ListingEvent): Game | undefined {
     venueId: event.venue.id,
     startTime: event.startsAt.toISOString(),
     seriesLabel: event.name,
-    homeTeam: team(event.homeTeam),
-    awayTeam: team(event.awayTeam),
+    homeTeam: toTeam(event.homeTeam),
+    awayTeam: toTeam(event.awayTeam),
     venue: { id: event.venue.id, name: event.venue.name, city: event.venue.city, state: event.venue.region },
   };
 }

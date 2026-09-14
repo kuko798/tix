@@ -16,6 +16,7 @@ import { useSession } from "@/lib/auth-client";
 import { formatGameDateLong } from "@/lib/format";
 import type { Dispute, Trade, TradeStage, UserProfile } from "@/lib/types";
 import { AppFrame, PageIntro } from "@/components/brand/page-intro";
+import { ReviewForm } from "./review-form";
 
 const ACTION_LABEL: Partial<Record<TradeStage, string>> = {
   offer_accepted: "Continue after authorization",
@@ -23,6 +24,8 @@ const ACTION_LABEL: Partial<Record<TradeStage, string>> = {
   transfer_initiated_a: "I started my ticket transfer",
   transfer_initiated_b: "I received the tickets",
 };
+
+type PaymentTransaction = { id: string; buyerId: string; sellerId: string; status: string; transfers: Array<{ senderId: string; recipientId: string; status: string }> };
 
 function toTrustUser(user: Trade["participantA"]): UserProfile {
   return {
@@ -49,9 +52,10 @@ function TradeDetailContent({ tradeId }: { tradeId: string }) {
   const currentUserId = session?.user?.id ?? "";
   const [trade, setTrade] = useState<Trade | null>(null);
   const [dispute, setDispute] = useState<Dispute | null>(null);
-  const [transaction, setTransaction] = useState<{ id: string; buyerId: string; sellerId: string; status: string } | null>(null);
+  const [transaction, setTransaction] = useState<PaymentTransaction | null>(null);
   const [missing, setMissing] = useState(false);
   const [pending, setPending] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
 
   useEffect(() => {
     fetch(`/api/trades/${tradeId}`, { cache: "no-store" })
@@ -62,11 +66,12 @@ function TradeDetailContent({ tradeId }: { tradeId: string }) {
         }
         return res.ok ? res.json() : null;
       })
-      .then((data: { trade: Trade; dispute: Dispute | null; transaction: { id: string; buyerId: string; sellerId: string; status: string } | null } | null) => {
+      .then((data: { trade: Trade; dispute: Dispute | null; transaction: PaymentTransaction | null; reviewed: boolean } | null) => {
         if (data) {
           setTrade(data.trade);
           setDispute(data.dispute);
           setTransaction(data.transaction);
+          setReviewed(data.reviewed);
         }
       })
       .catch(() => setMissing(true));
@@ -79,8 +84,9 @@ function TradeDetailContent({ tradeId }: { tradeId: string }) {
 
   const otherUser = trade.userAId === currentUserId ? trade.participantB : trade.participantA;
   const isTerminal = ["completed", "cancelled", "expired", "disputed"].includes(trade.stage);
-  const isMyTurn = trade.waitingOnUserId === currentUserId || (!trade.waitingOnUserId && !isTerminal);
-  const actionLabel = ACTION_LABEL[trade.stage] ?? "Confirm";
+  const isMyTurn = transaction?.status === "payment_authorized" && (trade.waitingOnUserId === currentUserId || (!trade.waitingOnUserId && !isTerminal));
+  const nextTransfer = transaction?.transfers.find(transfer => transfer.status !== "transfer_accepted");
+  const actionLabel = trade.stage === "offer_accepted" ? ACTION_LABEL.offer_accepted : nextTransfer?.status === "information_submitted" ? "I started my ticket transfer" : nextTransfer?.status === "transfer_initiated" ? "I received the tickets" : "Retry settlement";
   const needsPayment = transaction?.buyerId === currentUserId && ["awaiting_payment", "payment_failed", "payment_pending"].includes(transaction.status);
   const paymentAuthorized = transaction && ["payment_authorized", "transfer_in_progress", "capture_pending", "completed"].includes(transaction.status);
 
@@ -90,8 +96,9 @@ function TradeDetailContent({ tradeId }: { tradeId: string }) {
     try {
       await advanceTradeAction(trade.id);
       const res = await fetch(`/api/trades/${trade.id}`, { cache: "no-store" });
-      const data = (await res.json()) as { trade: Trade };
+      const data = (await res.json()) as { trade: Trade; transaction: PaymentTransaction | null };
       setTrade(data.trade);
+      setTransaction(data.transaction);
       toast.success(
         data.trade.stage === "completed"
           ? "Trade marked complete."
@@ -125,6 +132,7 @@ function TradeDetailContent({ tradeId }: { tradeId: string }) {
           <Button asChild size="sm"><Link href={`/transactions/${transaction.id}/pay`}>Authorize payment</Link></Button>
         </div>
       )}
+      {transaction?.status === "completed" && <ReviewForm tradeId={trade.id} revieweeId={otherUser.id} reviewed={reviewed} />}
 
       {trade.stage === "disputed" && dispute && (
         <AlertBanner variant="danger" title="This trade is under dispute" className="mt-6">

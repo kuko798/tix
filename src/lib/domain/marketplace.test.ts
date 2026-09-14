@@ -15,6 +15,9 @@ describe("offer transitions", () => {
 });
 
 describe("protected exchange amounts", () => {
+  it("uses the accepted cash offer as the total sale price", () => {
+    expect(calculateProtectedAmounts({ listingValueCents: 24_000, cashAmountCents: 5_000, isDirectSale: true })).toEqual({ ticketAmountCents: 5_000, platformFeeCents: 500, depositAmountCents: 5_000 });
+  });
   it("charges ticket value only for a direct sale", () => {
     expect(calculateProtectedAmounts({ listingValueCents: 20_000, cashAmountCents: 0, isDirectSale: true })).toEqual({ ticketAmountCents: 20_000, platformFeeCents: 900, depositAmountCents: 5_000 });
   });
