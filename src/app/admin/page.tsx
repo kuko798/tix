@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin, ForbiddenError } from "@/lib/server/policy";
 import { notFound } from "next/navigation";
 import { ModerationControls } from "./moderation-controls";
+import { EventImport } from "./event-import";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export default async function AdminPage() {
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <h1 className="font-display text-3xl leading-[1.08] sm:text-4xl">Marketplace review</h1>
       <p className="mt-2 text-sm text-muted-foreground">Admin access is checked against the persisted user role on every request and action.</p>
+      <EventImport />
       <div className="mt-8 grid gap-8 lg:grid-cols-2">
         <Queue title="Open reports" empty="No open reports.">{reports.map((item) => <Row key={item.id} title={item.reason} detail={item.details ?? "No additional details"}><ModerationControls targetType="report" targetId={item.id} actions={["under_review", "resolved", "dismissed"]} /></Row>)}</Queue>
         <Queue title="Ownership evidence" empty="No evidence awaiting review.">{evidence.map((item) => <Row key={item.id} title={item.originalName} detail={`${item.mimeType}, ${(item.byteSize / 1024).toFixed(0)} KB. Private object: ${item.objectKey}`}><Link className="mt-3 inline-block text-sm font-medium text-primary" href={`/api/admin/evidence/${item.id}`} target="_blank">Open private evidence</Link><ModerationControls targetType="evidence" targetId={item.id} actions={["approved", "rejected"]} /></Row>)}</Queue>
