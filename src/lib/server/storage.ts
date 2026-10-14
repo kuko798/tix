@@ -16,6 +16,9 @@ function getClient() {
     region: env.S3_REGION!,
     endpoint: env.S3_ENDPOINT || undefined,
     forcePathStyle: Boolean(env.S3_ENDPOINT),
+    // Presigning has no file body: do not sign the SDK's empty-body CRC32.
+    // Confirmation verifies the uploaded bytes against the supplied SHA-256.
+    requestChecksumCalculation: "WHEN_REQUIRED",
     credentials: {
       accessKeyId: env.S3_ACCESS_KEY_ID!,
       secretAccessKey: env.S3_SECRET_ACCESS_KEY!,

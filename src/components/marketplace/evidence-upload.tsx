@@ -12,7 +12,7 @@ export async function uploadPrivateEvidence(file: File, target: { listingId: str
   const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...target, originalName: file.name, mimeType: file.type, byteSize: file.size, sha256 }) });
   const upload = await response.json();
   if (!response.ok) throw new Error(upload.error ?? "Could not prepare the private upload.");
-  const put = await fetch(upload.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+  const put = await fetch(upload.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type, "x-amz-server-side-encryption": "AES256" }, body: file });
   if (!put.ok) throw new Error("Upload failed. Your saved information is safe; retry the file upload.");
   const confirmation = await fetch(endpoint, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ evidenceId: upload.evidenceId }) });
   const confirmed = await confirmation.json();
